@@ -7,6 +7,18 @@ import (
 	"net/url"
 )
 
+type RunContent struct {
+	Type string `json:"type"`
+	Text struct {
+		Value string `json:"value"`
+		// Annotations string `json:"annotations"`
+	} `json:"text"`
+}
+
+type Delta struct {
+	Content []RunContent `json:"content,omitempty"`
+}
+
 type Run struct {
 	ID             string             `json:"id"`
 	Object         string             `json:"object"`
@@ -30,13 +42,17 @@ type Run struct {
 
 	Temperature *float32 `json:"temperature,omitempty"`
 	// The maximum number of prompt tokens that may be used over the course of the run.
-	// If the run exceeds the number of prompt tokens specified, the run will end with status 'incomplete'.
+	// If the run exceeds the number of prompt tokens specified, the run will end with status 'complete'.
 	MaxPromptTokens int `json:"max_prompt_tokens,omitempty"`
 	// The maximum number of completion tokens that may be used over the course of the run.
-	// If the run exceeds the number of completion tokens specified, the run will end with status 'incomplete'.
+	// If the run exceeds the number of completion tokens specified, the run will end with status 'complete'.
 	MaxCompletionTokens int `json:"max_completion_tokens,omitempty"`
 	// ThreadTruncationStrategy defines the truncation strategy to use for the thread.
 	TruncationStrategy *ThreadTruncationStrategy `json:"truncation_strategy,omitempty"`
+
+	Content []RunContent `json:"content,omitempty"`
+
+	Delta Delta `json:"delta,omitempty"`
 
 	httpHeader
 }
@@ -50,7 +66,6 @@ const (
 	RunStatusCancelling     RunStatus = "cancelling"
 	RunStatusFailed         RunStatus = "failed"
 	RunStatusCompleted      RunStatus = "completed"
-	RunStatusIncomplete     RunStatus = "incomplete"
 	RunStatusExpired        RunStatus = "expired"
 	RunStatusCancelled      RunStatus = "cancelled"
 )
@@ -93,23 +108,18 @@ type RunRequest struct {
 	// Sampling temperature between 0 and 2. Higher values like 0.8 are  more random.
 	// lower values are more focused and deterministic.
 	Temperature *float32 `json:"temperature,omitempty"`
-	TopP        *float32 `json:"top_p,omitempty"`
 
 	// The maximum number of prompt tokens that may be used over the course of the run.
-	// If the run exceeds the number of prompt tokens specified, the run will end with status 'incomplete'.
+	// If the run exceeds the number of prompt tokens specified, the run will end with status 'complete'.
 	MaxPromptTokens int `json:"max_prompt_tokens,omitempty"`
 
 	// The maximum number of completion tokens that may be used over the course of the run.
-	// If the run exceeds the number of completion tokens specified, the run will end with status 'incomplete'.
+	// If the run exceeds the number of completion tokens specified, the run will end with status 'complete'.
 	MaxCompletionTokens int `json:"max_completion_tokens,omitempty"`
 
 	// ThreadTruncationStrategy defines the truncation strategy to use for the thread.
 	TruncationStrategy *ThreadTruncationStrategy `json:"truncation_strategy,omitempty"`
-
-	// This can be either a string or a ToolChoice object.
-	ToolChoice any `json:"tool_choice,omitempty"`
-	// This can be either a string or a ResponseFormat object.
-	ResponseFormat any `json:"response_format,omitempty"`
+	Stream             bool                      `json:"stream,omitempty"`
 }
 
 // ThreadTruncationStrategy defines the truncation strategy to use for the thread.
@@ -131,13 +141,6 @@ const (
 	TruncationStrategyLastMessages = TruncationStrategy("last_messages")
 )
 
-// ReponseFormat specifies the format the model must output.
-// https://platform.openai.com/docs/api-reference/runs/createRun#runs-createrun-response_format.
-// Type can either be text or json_object.
-type ReponseFormat struct {
-	Type string `json:"type"`
-}
-
 type RunModifyRequest struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
@@ -150,6 +153,7 @@ type RunList struct {
 }
 
 type SubmitToolOutputsRequest struct {
+	Stream      bool         `json:"stream,omitempty"`
 	ToolOutputs []ToolOutput `json:"tool_outputs"`
 }
 
@@ -246,6 +250,42 @@ func (c *Client) CreateRun(
 	}
 
 	err = c.sendRequest(req, &response)
+	return
+}
+
+// RunResponseStream
+// Note: Perhaps it is more elegant to abstract Stream using generics.
+type RunResponseStream struct {
+	*streamReader[Run]
+}
+
+// RunResponseStream — API call to create a Run w/ streaming
+func (c *Client) CreateRunStream(
+	ctx context.Context,
+	threadID string,
+	request RunRequest,
+) (stream *RunResponseStream, err error) {
+	urlSuffix := fmt.Sprintf("/threads/%s/runs", threadID)
+
+	request.Stream = true
+
+	req, err := c.newRequest(
+		ctx,
+		http.MethodPost,
+		c.fullURL(urlSuffix),
+		withBody(request),
+		withBetaAssistantVersion(c.config.AssistantVersion))
+	if err != nil {
+		return
+	}
+
+	resp, err := sendRequestStream[Run](c, req)
+	if err != nil {
+		return
+	}
+	stream = &RunResponseStream{
+		streamReader: resp,
+	}
 	return
 }
 
@@ -348,6 +388,36 @@ func (c *Client) SubmitToolOutputs(
 	}
 
 	err = c.sendRequest(req, &response)
+	return
+}
+
+// SubmitToolOutputsStream — API call to Submit ToolReponse a Run w/ streaming
+func (c *Client) SubmitToolOutputsStream(
+	ctx context.Context,
+	threadID string,
+	runID string,
+	request SubmitToolOutputsRequest,
+) (stream *RunResponseStream, err error) {
+	urlSuffix := fmt.Sprintf("/threads/%s/runs/%s/submit_tool_outputs", threadID, runID)
+	request.Stream = true
+
+	req, err := c.newRequest(
+		ctx,
+		http.MethodPost,
+		c.fullURL(urlSuffix),
+		withBody(request),
+		withBetaAssistantVersion(c.config.AssistantVersion))
+	if err != nil {
+		return
+	}
+
+	resp, err := sendRequestStream[Run](c, req)
+	if err != nil {
+		return
+	}
+	stream = &RunResponseStream{
+		streamReader: resp,
+	}
 	return
 }
 

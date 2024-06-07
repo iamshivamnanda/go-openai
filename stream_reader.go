@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	utils "github.com/sashabaranov/go-openai/internal"
+	utils "github.com/iamshivamnanda/go-openai/internal"
 )
 
 var (
@@ -16,7 +16,7 @@ var (
 )
 
 type streamable interface {
-	ChatCompletionStreamResponse | CompletionResponse
+	ChatCompletionStreamResponse | CompletionResponse | Run
 }
 
 type streamReader[T streamable] struct {
