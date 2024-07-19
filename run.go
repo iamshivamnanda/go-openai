@@ -459,6 +459,35 @@ func (c *Client) CreateThreadAndRun(
 	return
 }
 
+// CreateThreadAndRunStream submits tool outputs.
+func (c *Client) CreateThreadAndRunStream(
+	ctx context.Context,
+	request CreateThreadAndRunRequest) (stream *RunResponseStream, err error) {
+	urlSuffix := "/threads/runs"
+
+	request.Stream = true
+
+	req, err := c.newRequest(
+		ctx,
+		http.MethodPost,
+		c.fullURL(urlSuffix),
+		withBody(request),
+		withBetaAssistantVersion(c.config.AssistantVersion))
+	if err != nil {
+		return
+	}
+
+	resp, err := sendRequestStream[Run](c, req)
+	if err != nil {
+		return
+	}
+	stream = &RunResponseStream{
+		streamReader: resp,
+	}
+	return
+}
+
+
 // RetrieveRunStep retrieves a run step.
 func (c *Client) RetrieveRunStep(
 	ctx context.Context,
